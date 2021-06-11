@@ -49,8 +49,8 @@ function updateDom (dom, prevProps, nextProps) {
     .filter(isEvent)
     // 过滤出remove 或者changed 的event
     .filter(
-      key => 
-        !(key in nextProps) || 
+      key =>
+        !(key in nextProps) ||
         isNew(prevProps, nextProps)(key)
     )
     .forEach(name => {
@@ -100,7 +100,7 @@ function commitWork (fiber) {
   }
   let domParentFiber = fiber.parent
   // 通过循环找到最近的具有dom 的fiber
-  while(!domParentFiber.dom) {
+  while (!domParentFiber.dom) {
     domParentFiber = domParentFiber.parent
   }
   const domParent = domParentFiber.dom
@@ -126,7 +126,7 @@ function commitWork (fiber) {
 }
 
 // 找到最近的具有dom 的fiber，进行移除
-function commitDeletion(fiber, domParent) {
+function commitDeletion (fiber, domParent) {
   if (fiber.dom) {
     domParent.removeChild(fiber.dom)
   } else {
@@ -182,7 +182,7 @@ requestIdleCallback(workLoop)
  * 1. create current fiber dom node
  * 2. create children all new fibers
  * 3. return next unit of work
- */ 
+ */
 function performUnitOfWork (fiber) {
   // 判断是否时函数组件
   const isFunctionComponent = fiber.type instanceof Function
@@ -205,19 +205,56 @@ function performUnitOfWork (fiber) {
   }
 }
 
+let wipFiber = null
+let hookIndex = null
+
 /**
  * 处理函数组件
  * 函数组件有两点不同:
  * 1. 不需要生成 current fiber's dom
  * 2. 通过调用函数获取children，而不是直接从props 获取
- */ 
-function updateFunctionComponent(fiber) {
+ */
+function updateFunctionComponent (fiber) {
+  wipFiber = fiber
+  hookIndex = 0
+  wipFiber.hooks = []
   const children = [fiber.type(fiber.props)]
   reconcileChildren(fiber, children)
 }
 
+function useState (initial) {
+  const oldHook =
+    wipFiber.alternate &&
+    wipFiber.alternate.hooks &&
+    wipFiber.alternate.hooks[hookIndex]
+  const hook = {
+    state: oldHook ? oldHook.state : initial,
+    queue: []
+  }
+
+  const actions = oldHook ? oldHook.queue : []
+  actions.forEach(action => {
+    hook.state = action(hook.state)
+  })
+
+  const setState = action => {
+    hook.queue.push(action)
+    wipRoot = {
+      dom: currentRoot.dom,
+      props: currentRoot.props,
+      alternate: currentRoot,
+    }
+    nextUnitOfWork = wipRoot
+    deletions = []
+  }
+
+  wipFiber.hooks.push(hook)
+  hookIndex++
+  return [hook.state, setState]
+}
+
 // 处理原生标签
-function updateHostComponent(fiber) {
+function updateHostComponent (fiber) {
   // create dom node
   if (!fiber.dom) {
     fiber.dom = createDom(fiber)
@@ -284,13 +321,19 @@ function reconcileChildren (wipFiber, elements) {
 
 const LCL = {
   createElement,
-  render
+  render,
+  useState
 }
 
 /** @jsx LCL.createElement */
-function App(props) {
-  return <h1>Hi {props.name}</h1>
+function Counter () {
+  const [state, setState] = LCL.useState(1)
+  return (
+    <h1 onClick={() => setState(c => c + 1)}>
+      Count: {state}
+    </h1>
+  )
 }
-const element = <App name="foo" />
+const element = <Counter />
 const container = document.getElementById("root")
 LCL.render(element, container)
