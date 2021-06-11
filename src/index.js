@@ -98,7 +98,12 @@ function commitWork (fiber) {
   if (!fiber) {
     return
   }
-  const domParent = fiber.parent.dom
+  let domParentFiber = fiber.parent
+  // 通过循环找到最近的具有dom 的fiber
+  while(!domParentFiber.dom) {
+    domParentFiber = domParentFiber.parent
+  }
+  const domParent = domParentFiber.dom
   if (
     fiber.effectTag === 'PLACEMENT' &&
     fiber.dom !== null
@@ -114,10 +119,19 @@ function commitWork (fiber) {
       fiber.props
     )
   } else if (fiber.effectTag === 'DELETION') {
-    domParent.removeChild(fiber.dom)
+    commitDeletion(fiber, domParent)
   }
   commitWork(fiber.child)
   commitWork(fiber.sibling)
+}
+
+// 找到最近的具有dom 的fiber，进行移除
+function commitDeletion(fiber, domParent) {
+  if (fiber.dom) {
+    domParent.removeChild(fiber.dom)
+  } else {
+    commitDeletion(fiber.child, domParent)
+  }
 }
 
 // init
@@ -163,15 +177,20 @@ function workLoop (deadline) {
 
 requestIdleCallback(workLoop)
 
-// 每个work unit 需要处理的三个步骤
+/**
+ * 每个work unit 需要处理的三个步骤
+ * 1. create current fiber dom node
+ * 2. create children all new fibers
+ * 3. return next unit of work
+ */ 
 function performUnitOfWork (fiber) {
-  // TODO create dom node
-  if (!fiber.dom) {
-    fiber.dom = createDom(fiber)
+  // 判断是否时函数组件
+  const isFunctionComponent = fiber.type instanceof Function
+  if (isFunctionComponent) {
+    updateFunctionComponent(fiber)
+  } else {
+    updateHostComponent(fiber)
   }
-  // TODO create new fibers
-  const elements = fiber.props.children
-  reconcileChildren(fiber, elements)
 
   // TODO return next unit of work
   if (fiber.child) {
@@ -184,6 +203,27 @@ function performUnitOfWork (fiber) {
     }
     nextFiber = nextFiber.parent
   }
+}
+
+/**
+ * 处理函数组件
+ * 函数组件有两点不同:
+ * 1. 不需要生成 current fiber's dom
+ * 2. 通过调用函数获取children，而不是直接从props 获取
+ */ 
+function updateFunctionComponent(fiber) {
+  const children = [fiber.type(fiber.props)]
+  reconcileChildren(fiber, children)
+}
+
+// 处理原生标签
+function updateHostComponent(fiber) {
+  // create dom node
+  if (!fiber.dom) {
+    fiber.dom = createDom(fiber)
+  }
+  // use diff create fibers
+  reconcileChildren(fiber, fiber.props.children)
 }
 
 // 调和 children
@@ -248,20 +288,9 @@ const LCL = {
 }
 
 /** @jsx LCL.createElement */
+function App(props) {
+  return <h1>Hi {props.name}</h1>
+}
+const element = <App name="foo" />
 const container = document.getElementById("root")
-
-const updateValue = e => {
-  rerender(e.target.value)
-}
-
-const rerender = value => {
-  const element = (
-    <div>
-      <input onInput={updateValue} value={value} />
-      <h2>Hello {value}</h2>
-    </div>
-  )
-  LCL.render(element, container)
-}
-
-rerender("World")
+LCL.render(element, container)
